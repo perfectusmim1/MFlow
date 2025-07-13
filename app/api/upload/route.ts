@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
 import { authMiddleware } from '@/lib/middleware';
 
-// POST /api/upload - Dosya yükleme
+// POST /api/upload - Dosya yükleme (Cloudinary ile)
 export async function POST(req: NextRequest) {
   try {
     const authResult = await authMiddleware(req);
@@ -44,33 +41,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Dosya adını oluştur
-    const timestamp = Date.now();
-    const originalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const extension = path.extname(originalName);
-    const fileName = `${timestamp}_${Math.random().toString(36).substring(2)}${extension}`;
-
-    // Upload dizinini oluştur
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', type);
-    if (!existsSync(uploadDir)) {
-      await mkdir(uploadDir, { recursive: true });
-    }
-
-    // Dosyayı kaydet
-    const filePath = path.join(uploadDir, fileName);
+    // Cloudinary'ye yükle
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    
-    await writeFile(filePath, buffer);
+    const base64 = buffer.toString('base64');
+    const dataURI = `data:${file.type};base64,${base64}`;
 
-    // URL'yi oluştur
-    const fileUrl = `/uploads/${type}/${fileName}`;
+    // Cloudinary upload URL
+    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`;
+    
+    const uploadData = new FormData();
+    uploadData.append('file', dataURI);
+    uploadData.append('upload_preset', process.env.CLOUDINARY_UPLOAD_PRESET || 'ml_default');
+    uploadData.append('folder', `mangareader/${type}`);
+
+    const response = await fetch(cloudinaryUrl, {
+      method: 'POST',
+      body: uploadData,
+    });
+
+    if (!response.ok) {
+      throw new Error('Cloudinary upload failed');
+    }
+
+    const result = await response.json();
 
     return NextResponse.json({
       success: true,
       data: {
-        url: fileUrl,
-        fileName: fileName,
+        url: result.secure_url,
+        fileName: result.public_id,
         originalName: file.name,
         size: file.size,
         type: file.type
