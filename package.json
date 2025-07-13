@@ -4,7 +4,7 @@
   "description": "Modern Manga ve Webtoon Okuma Sitesi",
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/init-admin.js && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "init-admin": "node scripts/init-admin.js",
