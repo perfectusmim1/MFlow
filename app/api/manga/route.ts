@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
     const type = searchParams.get('type');
     const adminPanel = searchParams.get('admin') === 'true'; // Admin paneli kontrolü
+    const fields = searchParams.get('fields'); // Fields parametresi
 
     const skip = (page - 1) * limit;
     
@@ -99,6 +100,45 @@ export async function GET(req: NextRequest) {
       matchConditions.type = type.trim();
     }
 
+    // Build projection based on fields parameter
+    let projectStage: any = {
+      title: 1,
+      slug: 1,
+      coverImage: 1,
+      rating: 1,
+      viewCount: 1,
+      status: 1,
+      type: 1,
+      author: 1,
+      artist: 1,
+      genres: 1,
+      description: 1,
+      lastChapter: { $arrayElemAt: ["$lastChapterData", 0] },
+      createdAt: 1,
+      updatedAt: 1,
+      isPrivate: 1,
+      totalChapters: { $size: "$allChapters" },
+      latestChapters: "$allChapters"
+    };
+
+    // If fields parameter is provided, use only those fields
+    if (fields) {
+      const requestedFields = fields.split(',').map(f => f.trim());
+      const newProjectStage: any = { _id: 1 }; // Always include _id
+      
+      requestedFields.forEach(field => {
+        if (field === 'totalChapters') {
+          newProjectStage.totalChapters = { $size: "$allChapters" };
+        } else if (projectStage[field] !== undefined) {
+          newProjectStage[field] = projectStage[field];
+        } else {
+          newProjectStage[field] = 1;
+        }
+      });
+      
+      projectStage = newProjectStage;
+    }
+
     const mangaPipeline: any[] = [
       ...(Object.keys(matchConditions).length > 0 ? [{ $match: matchConditions }] : []),
       {
@@ -127,25 +167,7 @@ export async function GET(req: NextRequest) {
         }
       },
       {
-        $project: {
-          title: 1,
-          slug: 1,
-          coverImage: 1,
-          rating: 1,
-          viewCount: 1,
-          status: 1,
-          type: 1,
-          author: 1,
-          artist: 1,
-          genres: 1,
-          description: 1,
-          lastChapter: { $arrayElemAt: ["$lastChapterData", 0] },
-          createdAt: 1,
-          updatedAt: 1,
-          isPrivate: 1,
-          totalChapters: { $size: "$chapters" },
-          latestChapters: "$allChapters"
-        }
+        $project: projectStage
       },
       { $sort: sortObj },
       { $skip: skip },
@@ -189,7 +211,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error('Manga listesi hatası:', error);
     return NextResponse.json(
-      { success: false, error: 'Manga listesi alınamadı' },
+      { success: false, error: 'Manga listesi alınamadı: ' + (error as any).message },
       { status: 500 }
     );
   }

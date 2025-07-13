@@ -1,13 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/database';
-import ChapterModel from '@/lib/models/Chapter';
-import MangaModel from '@/lib/models/Manga';
 import { authMiddleware } from '@/lib/middleware';
+
+// Safe model import functions
+function getChapterModel() {
+  try {
+    if (typeof window === 'undefined') {
+      const mongoose = require('mongoose');
+      if (mongoose.models.Chapter) {
+        return mongoose.models.Chapter;
+      }
+      return require('@/lib/models/Chapter').default;
+    }
+  } catch (error) {
+    console.error('Error getting Chapter model:', error);
+    throw error;
+  }
+}
+
+function getMangaModel() {
+  try {
+    if (typeof window === 'undefined') {
+      const mongoose = require('mongoose');
+      if (mongoose.models.Manga) {
+        return mongoose.models.Manga;
+      }
+      return require('@/lib/models/Manga').default;
+    }
+  } catch (error) {
+    console.error('Error getting Manga model:', error);
+    throw error;
+  }
+}
 
 // GET /api/chapters - Chapter listesi
 export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
+    
+    // Get models safely
+    const ChapterModel = getChapterModel();
+    const MangaModel = getMangaModel();
     
     // Check if user is admin
     const authResult = await authMiddleware(req);
@@ -132,6 +165,10 @@ export async function POST(req: NextRequest) {
     }
 
     await connectToDatabase();
+    
+    // Get models safely
+    const ChapterModel = getChapterModel();
+    const MangaModel = getMangaModel();
     
     const body = await req.json();
     console.log('Chapter oluşturma isteği:', body);
