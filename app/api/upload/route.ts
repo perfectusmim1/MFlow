@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
 import { authMiddleware } from '@/lib/middleware';
 
 // POST /api/upload - Dosya yükleme
@@ -44,38 +42,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Dosya adını oluştur
-    const timestamp = Date.now();
-    const originalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const extension = path.extname(originalName);
-    const fileName = `${timestamp}_${Math.random().toString(36).substring(2)}${extension}`;
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
 
-    // Upload dizinini oluştur
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', type);
-    if (!existsSync(uploadDir)) {
-      await mkdir(uploadDir, { recursive: true });
-    }
-
-    // Dosyayı kaydet
-    const filePath = path.join(uploadDir, fileName);
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    
-    await writeFile(filePath, buffer);
 
-    // URL'yi oluştur
-    const fileUrl = `/uploads/${type}/${fileName}`;
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: `mflow/${type}`,
+          resource_type: 'auto',
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        }
+      );
+      uploadStream.end(buffer);
+    });
+
+    const fileUrl = (result as any).secure_url;
+
+    const resultData = result as any;
 
     return NextResponse.json({
       success: true,
       data: {
-        url: fileUrl,
-        fileName: fileName,
+        url: resultData.secure_url,
+        fileName: resultData.public_id,
         originalName: file.name,
         size: file.size,
-        type: file.type
+        type: file.type,
+        provider: 'cloudinary',
       },
-      message: 'Dosya başarıyla yüklendi'
+      message: 'Dosya başarıyla Cloudinary\'ye yüklendi',
     });
 
   } catch (error) {
