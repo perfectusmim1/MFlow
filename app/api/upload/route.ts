@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import path from 'path';
 import { authMiddleware } from '@/lib/middleware';
 
-// POST /api/upload - Dosya yükleme (Cloudinary ile)
+// POST /api/upload - Dosya yükleme
 export async function POST(req: NextRequest) {
   try {
     const authResult = await authMiddleware(req);
@@ -41,56 +44,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cloudinary'ye yükle
+    // Dosya adını oluştur
+    const timestamp = Date.now();
+    const originalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const extension = path.extname(originalName);
+    const fileName = `${timestamp}_${Math.random().toString(36).substring(2)}${extension}`;
+
+    // Upload dizinini oluştur
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads', type);
+    if (!existsSync(uploadDir)) {
+      await mkdir(uploadDir, { recursive: true });
+    }
+
+    // Dosyayı kaydet
+    const filePath = path.join(uploadDir, fileName);
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const base64 = buffer.toString('base64');
-    const dataURI = `data:${file.type};base64,${base64}`;
-
-    // Environment variables kontrolü
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
     
-    console.log('Cloudinary Config:', { cloudName, uploadPreset });
-    
-    if (!cloudName) {
-      throw new Error('CLOUDINARY_CLOUD_NAME environment variable is missing');
-    }
-    
-    if (!uploadPreset) {
-      throw new Error('CLOUDINARY_UPLOAD_PRESET environment variable is missing');
-    }
+    await writeFile(filePath, buffer);
 
-    // Cloudinary upload URL - unsigned upload için
-    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
-    
-    const uploadData = new FormData();
-    uploadData.append('file', dataURI);
-    uploadData.append('upload_preset', uploadPreset);
-    uploadData.append('folder', `mangareader/${type}`);
-
-    console.log('Uploading to Cloudinary:', cloudinaryUrl);
-
-    const response = await fetch(cloudinaryUrl, {
-      method: 'POST',
-      body: uploadData,
-    });
-
-    console.log('Cloudinary response status:', response.status);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Cloudinary error:', errorText);
-      throw new Error(`Cloudinary upload failed: ${response.status} - ${errorText}`);
-    }
-
-    const result = await response.json();
+    // URL'yi oluştur
+    const fileUrl = `/uploads/${type}/${fileName}`;
 
     return NextResponse.json({
       success: true,
       data: {
-        url: result.secure_url,
-        fileName: result.public_id,
+        url: fileUrl,
+        fileName: fileName,
         originalName: file.name,
         size: file.size,
         type: file.type
@@ -99,9 +79,13 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('Detailed upload error:', error);
     return NextResponse.json(
-      { success: false, error: 'Dosya yüklenemedi' },
+      { 
+        success: false, 
+        error: 'Dosya yüklenemedi. Sunucu loglarını kontrol edin.',
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }
