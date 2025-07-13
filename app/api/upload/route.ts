@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
 import { authMiddleware } from '@/lib/middleware';
 
+// Cloudinary yapılandırması
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 // POST /api/upload - Dosya yükleme
 export async function POST(req: NextRequest) {
   try {
@@ -24,11 +31,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Dosya boyutu kontrolü (10MB)
-    const maxSize = 10 * 1024 * 1024;
+    // Dosya boyutu kontrolü (15MB - daha yüksek limit)
+    const maxSize = 15 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { success: false, error: 'Dosya boyutu 10MB\'tan büyük olamaz' },
+        { success: false, error: 'Dosya boyutu 15MB\'tan büyük olamaz' },
         { status: 400 }
       );
     }
@@ -42,33 +49,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-    });
-
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const result = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: `mflow/${type}`,
-          resource_type: 'auto',
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(result);
-          }
-        }
-      );
-      uploadStream.end(buffer);
-    });
+    // Cloudinary upload with timeout and retry logic
+    const uploadWithTimeout = (buffer: Buffer, options: any, timeoutMs = 30000) => {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Upload timeout - işlem 30 saniyede tamamlanamadı'));
+        }, timeoutMs);
 
-    const fileUrl = (result as any).secure_url;
+        const uploadStream = cloudinary.uploader.upload_stream(
+          options,
+          (error, result) => {
+            clearTimeout(timeout);
+            if (error) {
+              reject(error);
+            } else {
+              resolve(result);
+            }
+          }
+        );
+        
+        uploadStream.end(buffer);
+      });
+    };
+
+    const result = await uploadWithTimeout(buffer, {
+      folder: `mflow/${type}`,
+      resource_type: 'auto',
+      quality: 'auto:good', // Otomatik kalite optimizasyonu
+      fetch_format: 'auto', // Otomatik format optimizasyonu
+      flags: 'progressive', // Progressive JPEG
+    });
 
     const resultData = result as any;
 
@@ -81,6 +94,8 @@ export async function POST(req: NextRequest) {
         size: file.size,
         type: file.type,
         provider: 'cloudinary',
+        width: resultData.width,
+        height: resultData.height,
       },
       message: 'Dosya başarıyla Cloudinary\'ye yüklendi',
     });
@@ -122,6 +137,17 @@ export async function POST(req: NextRequest) {
             details: error.message
           },
           { status: 408 }
+        );
+      }
+
+      if (errorMessage.includes('network') || errorMessage.includes('connection')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Ağ bağlantısı hatası. Lütfen tekrar deneyin.',
+            details: error.message
+          },
+          { status: 503 }
         );
       }
     }

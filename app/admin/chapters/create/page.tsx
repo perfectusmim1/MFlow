@@ -172,6 +172,85 @@ export default function CreateChapterPage() {
     setPreviewUrls(newPreviews);
   };
 
+  const uploadSinglePage = async (file: File, pageIndex: number, retryCount = 0): Promise<string> => {
+    const maxRetries = 3;
+    const token = localStorage.getItem('token');
+    
+    if (!token) {
+      throw new Error('Oturum süresi dolmuş. Lütfen tekrar giriş yapın.');
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', 'chapter');
+
+      console.log(`Sayfa ${pageIndex + 1} yükleniyor... (Deneme: ${retryCount + 1})`);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        let errorMessage = `Sayfa ${pageIndex + 1} yüklenemedi`;
+        
+        try {
+          const errorData = await response.json();
+          console.error(`Sayfa ${pageIndex + 1} yükleme hatası:`, errorData);
+          
+          // Cloudinary spesifik hataları kontrol et
+          if (response.status === 429) {
+            errorMessage = 'Cloudinary kullanım limitine ulaşıldı. Lütfen hesap planınızı kontrol edin.';
+          } else if (response.status === 401) {
+            errorMessage = 'Cloudinary kimlik doğrulama hatası. API anahtarlarını kontrol edin.';
+          } else if (response.status === 408) {
+            errorMessage = 'Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.';
+          } else {
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          }
+        } catch (parseError) {
+          // JSON parse hatası - muhtemelen HTML hata sayfası döndü
+          console.error('JSON parse hatası:', parseError);
+          errorMessage = `Sayfa ${pageIndex + 1} yüklenirken sunucu hatası oluştu. Lütfen tekrar deneyin.`;
+        }
+        
+        // Retry logic - 500 hatası veya timeout durumunda tekrar dene
+        if ((response.status === 500 || response.status === 408 || response.status === 429) && retryCount < maxRetries) {
+          const delay = Math.min(2000 * Math.pow(2, retryCount), 10000); // Exponential backoff, max 10s
+          console.log(`Sayfa ${pageIndex + 1} için ${delay}ms bekleyip tekrar denenecek...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return await uploadSinglePage(file, pageIndex, retryCount + 1);
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      console.log(`Sayfa ${pageIndex + 1} yüklendi:`, data);
+      
+      // API yanıtında data.data.url kullanılması gerekiyor
+      const imageUrl = data.data?.url || data.url;
+      if (!imageUrl) {
+        throw new Error(`Sayfa ${pageIndex + 1} URL'si alınamadı`);
+      }
+      
+      return imageUrl;
+    } catch (error) {
+      if (retryCount < maxRetries && error instanceof Error && 
+          (error.message.includes('sunucu hatası') || error.message.includes('timeout'))) {
+        const delay = Math.min(2000 * Math.pow(2, retryCount), 10000);
+        console.log(`Sayfa ${pageIndex + 1} için ${delay}ms bekleyip tekrar denenecek...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return await uploadSinglePage(file, pageIndex, retryCount + 1);
+      }
+      throw error;
+    }
+  };
+
   const uploadPages = async (): Promise<string[]> => {
     if (form.pages.length === 0) return [];
 
@@ -179,66 +258,36 @@ export default function CreateChapterPage() {
     const uploadedUrls: string[] = [];
 
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('Oturum süresi dolmuş. Lütfen tekrar giriş yapın.');
-      }
+      // Batch size - aynı anda maksimum 3 dosya yükle
+      const batchSize = 3;
+      const totalPages = form.pages.length;
+      
+      showInfo(`${totalPages} sayfa yüklenecek...`);
 
-      for (let i = 0; i < form.pages.length; i++) {
-        const formData = new FormData();
-        formData.append('file', form.pages[i]);
-        formData.append('type', 'chapter');
+      for (let i = 0; i < totalPages; i += batchSize) {
+        const batch = form.pages.slice(i, i + batchSize);
+        const batchPromises = batch.map((file, batchIndex) => 
+          uploadSinglePage(file, i + batchIndex)
+        );
 
-        console.log(`Sayfa ${i + 1} yükleniyor...`);
-
-        // İstekler arasına küçük bir gecikme ekleyerek sunucuyu rahatlat
-        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms bekle
-
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData
-        });
-
-        if (!response.ok) {
-          let errorMessage = `Sayfa ${i + 1} yüklenemedi`;
+        try {
+          // Batch'i paralel olarak yükle
+          const batchResults = await Promise.all(batchPromises);
+          uploadedUrls.push(...batchResults);
           
-          try {
-            const errorData = await response.json();
-            console.error(`Sayfa ${i + 1} yükleme hatası:`, errorData);
-            
-            // Cloudinary spesifik hataları kontrol et
-            if (response.status === 429) {
-              errorMessage = 'Cloudinary kullanım limitine ulaşıldı. Lütfen hesap planınızı kontrol edin.';
-            } else if (response.status === 401) {
-              errorMessage = 'Cloudinary kimlik doğrulama hatası. API anahtarlarını kontrol edin.';
-            } else if (response.status === 408) {
-              errorMessage = 'Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.';
-            } else {
-              errorMessage = errorData.error || errorData.message || errorMessage;
-            }
-          } catch (parseError) {
-            // JSON parse hatası - muhtemelen HTML hata sayfası döndü
-            console.error('JSON parse hatası:', parseError);
-            errorMessage = `Sayfa ${i + 1} yüklenirken sunucu hatası oluştu. Lütfen tekrar deneyin.`;
+          // Her batch sonrası progress göster
+          const uploadedCount = Math.min(i + batchSize, totalPages);
+          showInfo(`${uploadedCount}/${totalPages} sayfa yüklendi`);
+          
+          // Batch'ler arası daha uzun bekleme (Cloudinary rate limit için)
+          if (i + batchSize < totalPages) {
+            console.log('Sonraki batch için 2 saniye bekleniyor...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
-          
-          throw new Error(errorMessage);
+        } catch (batchError) {
+          console.error(`Batch ${Math.floor(i / batchSize) + 1} hatası:`, batchError);
+          throw batchError;
         }
-
-        const data = await response.json();
-        console.log(`Sayfa ${i + 1} yüklendi:`, data);
-        
-        // API yanıtında data.data.url kullanılması gerekiyor
-        const imageUrl = data.data?.url || data.url;
-        if (!imageUrl) {
-          throw new Error(`Sayfa ${i + 1} URL'si alınamadı`);
-        }
-        
-        uploadedUrls.push(imageUrl);
-        showInfo(`Sayfa ${i + 1}/${form.pages.length} yüklendi`);
       }
 
       return uploadedUrls;
