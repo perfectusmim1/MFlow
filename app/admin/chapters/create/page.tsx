@@ -203,9 +203,29 @@ export default function CreateChapterPage() {
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          console.error(`Sayfa ${i + 1} yükleme hatası:`, errorData);
-          throw new Error(errorData.error || `Sayfa ${i + 1} yüklenemedi`);
+          let errorMessage = `Sayfa ${i + 1} yüklenemedi`;
+          
+          try {
+            const errorData = await response.json();
+            console.error(`Sayfa ${i + 1} yükleme hatası:`, errorData);
+            
+            // Cloudinary spesifik hataları kontrol et
+            if (response.status === 429) {
+              errorMessage = 'Cloudinary kullanım limitine ulaşıldı. Lütfen hesap planınızı kontrol edin.';
+            } else if (response.status === 401) {
+              errorMessage = 'Cloudinary kimlik doğrulama hatası. API anahtarlarını kontrol edin.';
+            } else if (response.status === 408) {
+              errorMessage = 'Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.';
+            } else {
+              errorMessage = errorData.error || errorData.message || errorMessage;
+            }
+          } catch (parseError) {
+            // JSON parse hatası - muhtemelen HTML hata sayfası döndü
+            console.error('JSON parse hatası:', parseError);
+            errorMessage = `Sayfa ${i + 1} yüklenirken sunucu hatası oluştu. Lütfen tekrar deneyin.`;
+          }
+          
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();

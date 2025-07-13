@@ -87,11 +87,51 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error('Detailed upload error:', error);
+    
+    // Cloudinary spesifik hataları kontrol et
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase();
+      
+      if (errorMessage.includes('quota') || errorMessage.includes('limit')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Cloudinary kullanım limitine ulaşıldı. Lütfen hesap planınızı kontrol edin.',
+            details: error.message
+          },
+          { status: 429 }
+        );
+      }
+      
+      if (errorMessage.includes('unauthorized') || errorMessage.includes('invalid')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Cloudinary kimlik doğrulama hatası. API anahtarlarını kontrol edin.',
+            details: error.message
+          },
+          { status: 401 }
+        );
+      }
+      
+      if (errorMessage.includes('timeout')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.',
+            details: error.message
+          },
+          { status: 408 }
+        );
+      }
+    }
+    
     return NextResponse.json(
       { 
         success: false, 
         error: 'Dosya yüklenemedi. Sunucu loglarını kontrol edin.',
-        details: error instanceof Error ? error.message : String(error)
+        details: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString()
       },
       { status: 500 }
     );
