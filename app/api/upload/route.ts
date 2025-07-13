@@ -31,11 +31,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Dosya boyutu kontrolü (10MB - daha güvenli)
-    const maxSize = 10 * 1024 * 1024;
+    // Dosya boyutu kontrolü (100MB)
+    const maxSize = 100 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { success: false, error: 'Dosya boyutu 10MB\'tan büyük olamaz' },
+        { success: false, error: 'Dosya boyutu 100MB\'tan büyük olamaz' },
         { status: 400 }
       );
     }
