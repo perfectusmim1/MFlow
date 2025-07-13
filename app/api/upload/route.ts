@@ -47,21 +47,41 @@ export async function POST(req: NextRequest) {
     const base64 = buffer.toString('base64');
     const dataURI = `data:${file.type};base64,${base64}`;
 
+    // Environment variables kontrolü
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
+    
+    console.log('Cloudinary Config:', { cloudName, uploadPreset });
+    
+    if (!cloudName) {
+      throw new Error('CLOUDINARY_CLOUD_NAME environment variable is missing');
+    }
+    
+    if (!uploadPreset) {
+      throw new Error('CLOUDINARY_UPLOAD_PRESET environment variable is missing');
+    }
+
     // Cloudinary upload URL
-    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`;
+    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
     
     const uploadData = new FormData();
     uploadData.append('file', dataURI);
-    uploadData.append('upload_preset', process.env.CLOUDINARY_UPLOAD_PRESET || 'ml_default');
+    uploadData.append('upload_preset', uploadPreset);
     uploadData.append('folder', `mangareader/${type}`);
+
+    console.log('Uploading to Cloudinary:', cloudinaryUrl);
 
     const response = await fetch(cloudinaryUrl, {
       method: 'POST',
       body: uploadData,
     });
 
+    console.log('Cloudinary response status:', response.status);
+
     if (!response.ok) {
-      throw new Error('Cloudinary upload failed');
+      const errorText = await response.text();
+      console.error('Cloudinary error:', errorText);
+      throw new Error(`Cloudinary upload failed: ${response.status} - ${errorText}`);
     }
 
     const result = await response.json();
