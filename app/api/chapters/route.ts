@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
         });
       
       // Filter out chapters where mangaId is null (private manga)
-      chapters = chapters.filter(chapter => chapter.mangaId !== null);
+      chapters = chapters.filter((chapter: any) => chapter.mangaId !== null);
     } else {
       chapters = await ChapterModel.find(query)
         .sort(sortObj)
@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
           select: 'isPrivate',
           match: { isPrivate: { $ne: true } }
         });
-      total = allChapters.filter(chapter => chapter.mangaId !== null).length;
+      total = allChapters.filter((chapter: any) => chapter.mangaId !== null).length;
     } else {
       total = await ChapterModel.countDocuments(query);
     }
