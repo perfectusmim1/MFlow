@@ -49,24 +49,19 @@ export async function POST(req: NextRequest) {
 
     // Environment variables kontrolü
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
     
-    console.log('Cloudinary Config:', { cloudName, uploadPreset });
+    console.log('Cloudinary Config:', { cloudName });
     
     if (!cloudName) {
       throw new Error('CLOUDINARY_CLOUD_NAME environment variable is missing');
     }
-    
-    if (!uploadPreset) {
-      throw new Error('CLOUDINARY_UPLOAD_PRESET environment variable is missing');
-    }
 
-    // Cloudinary upload URL
+    // Cloudinary upload URL - unsigned upload için
     const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
     
     const uploadData = new FormData();
     uploadData.append('file', dataURI);
-    uploadData.append('upload_preset', uploadPreset);
+    uploadData.append('upload_preset', 'ml_default'); // Demo hesabının default preset'i
     uploadData.append('folder', `mangareader/${type}`);
 
     console.log('Uploading to Cloudinary:', cloudinaryUrl);
