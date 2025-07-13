@@ -173,7 +173,7 @@ export default function CreateChapterPage() {
   };
 
   const uploadSinglePage = async (file: File, pageIndex: number, retryCount = 0): Promise<string> => {
-    const maxRetries = 3;
+    const maxRetries = 2; // Daha az retry
     const token = localStorage.getItem('token');
     
     if (!token) {
@@ -201,26 +201,15 @@ export default function CreateChapterPage() {
         try {
           const errorData = await response.json();
           console.error(`Sayfa ${pageIndex + 1} yükleme hatası:`, errorData);
-          
-          // Cloudinary spesifik hataları kontrol et
-          if (response.status === 429) {
-            errorMessage = 'Cloudinary kullanım limitine ulaşıldı. Lütfen hesap planınızı kontrol edin.';
-          } else if (response.status === 401) {
-            errorMessage = 'Cloudinary kimlik doğrulama hatası. API anahtarlarını kontrol edin.';
-          } else if (response.status === 408) {
-            errorMessage = 'Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.';
-          } else {
-            errorMessage = errorData.error || errorData.message || errorMessage;
-          }
+          errorMessage = errorData.error || errorData.message || errorMessage;
         } catch (parseError) {
-          // JSON parse hatası - muhtemelen HTML hata sayfası döndü
           console.error('JSON parse hatası:', parseError);
-          errorMessage = `Sayfa ${pageIndex + 1} yüklenirken sunucu hatası oluştu. Lütfen tekrar deneyin.`;
+          errorMessage = `Sayfa ${pageIndex + 1} yüklenirken sunucu hatası oluştu.`;
         }
         
-        // Retry logic - 500 hatası veya timeout durumunda tekrar dene
-        if ((response.status === 500 || response.status === 408 || response.status === 429) && retryCount < maxRetries) {
-          const delay = Math.min(2000 * Math.pow(2, retryCount), 10000); // Exponential backoff, max 10s
+        // Sadece 500 hatası için retry
+        if (response.status === 500 && retryCount < maxRetries) {
+          const delay = 1000 * (retryCount + 1); // 1s, 2s
           console.log(`Sayfa ${pageIndex + 1} için ${delay}ms bekleyip tekrar denenecek...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           return await uploadSinglePage(file, pageIndex, retryCount + 1);
@@ -232,7 +221,6 @@ export default function CreateChapterPage() {
       const data = await response.json();
       console.log(`Sayfa ${pageIndex + 1} yüklendi:`, data);
       
-      // API yanıtında data.data.url kullanılması gerekiyor
       const imageUrl = data.data?.url || data.url;
       if (!imageUrl) {
         throw new Error(`Sayfa ${pageIndex + 1} URL'si alınamadı`);
@@ -241,8 +229,8 @@ export default function CreateChapterPage() {
       return imageUrl;
     } catch (error) {
       if (retryCount < maxRetries && error instanceof Error && 
-          (error.message.includes('sunucu hatası') || error.message.includes('timeout'))) {
-        const delay = Math.min(2000 * Math.pow(2, retryCount), 10000);
+          error.message.includes('sunucu hatası')) {
+        const delay = 1000 * (retryCount + 1);
         console.log(`Sayfa ${pageIndex + 1} için ${delay}ms bekleyip tekrar denenecek...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return await uploadSinglePage(file, pageIndex, retryCount + 1);
@@ -258,11 +246,18 @@ export default function CreateChapterPage() {
     const uploadedUrls: string[] = [];
 
     try {
-      // Batch size - aynı anda maksimum 3 dosya yükle
-      const batchSize = 3;
-      const totalPages = form.pages.length;
+      // Dinamik batch size - sayfa sayısına göre
+      let batchSize = 5; // Varsayılan 5
+      if (form.pages.length <= 10) {
+        batchSize = 5;
+      } else if (form.pages.length <= 20) {
+        batchSize = 8;
+      } else {
+        batchSize = 10; // 20+ sayfa için 10'luk batch
+      }
       
-      showInfo(`${totalPages} sayfa yüklenecek...`);
+      const totalPages = form.pages.length;
+      showInfo(`${totalPages} sayfa yüklenecek (${batchSize}'li gruplar halinde)...`);
 
       for (let i = 0; i < totalPages; i += batchSize) {
         const batch = form.pages.slice(i, i + batchSize);
@@ -275,14 +270,14 @@ export default function CreateChapterPage() {
           const batchResults = await Promise.all(batchPromises);
           uploadedUrls.push(...batchResults);
           
-          // Her batch sonrası progress göster
+          // Progress göster
           const uploadedCount = Math.min(i + batchSize, totalPages);
           showInfo(`${uploadedCount}/${totalPages} sayfa yüklendi`);
           
-          // Batch'ler arası daha uzun bekleme (Cloudinary rate limit için)
-          if (i + batchSize < totalPages) {
-            console.log('Sonraki batch için 2 saniye bekleniyor...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
+          // Sadece büyük batch'ler için kısa bekleme
+          if (i + batchSize < totalPages && batchSize >= 8) {
+            console.log('Sonraki batch için 1 saniye bekleniyor...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
         } catch (batchError) {
           console.error(`Batch ${Math.floor(i / batchSize) + 1} hatası:`, batchError);

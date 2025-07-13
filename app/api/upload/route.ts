@@ -31,11 +31,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Dosya boyutu kontrolü (15MB - daha yüksek limit)
-    const maxSize = 15 * 1024 * 1024;
+    // Dosya boyutu kontrolü (10MB - daha güvenli)
+    const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { success: false, error: 'Dosya boyutu 15MB\'tan büyük olamaz' },
+        { success: false, error: 'Dosya boyutu 10MB\'tan büyük olamaz' },
         { status: 400 }
       );
     }
@@ -52,35 +52,30 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Cloudinary upload with timeout and retry logic
-    const uploadWithTimeout = (buffer: Buffer, options: any, timeoutMs = 30000) => {
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Upload timeout - işlem 30 saniyede tamamlanamadı'));
-        }, timeoutMs);
+    // Basit ve hızlı Cloudinary upload
+    const result = await new Promise((resolve, reject) => {
+      // 20 saniye timeout
+      const timeout = setTimeout(() => {
+        reject(new Error('Upload timeout'));
+      }, 20000);
 
-        const uploadStream = cloudinary.uploader.upload_stream(
-          options,
-          (error, result) => {
-            clearTimeout(timeout);
-            if (error) {
-              reject(error);
-            } else {
-              resolve(result);
-            }
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: `mflow/${type}`,
+          resource_type: 'auto',
+          quality: 'auto:good',
+        },
+        (error, result) => {
+          clearTimeout(timeout);
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
           }
-        );
-        
-        uploadStream.end(buffer);
-      });
-    };
-
-    const result = await uploadWithTimeout(buffer, {
-      folder: `mflow/${type}`,
-      resource_type: 'auto',
-      quality: 'auto:good', // Otomatik kalite optimizasyonu
-      fetch_format: 'auto', // Otomatik format optimizasyonu
-      flags: 'progressive', // Progressive JPEG
+        }
+      );
+      
+      uploadStream.end(buffer);
     });
 
     const resultData = result as any;
@@ -101,53 +96,23 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Detailed upload error:', error);
+    console.error('Upload error:', error);
     
-    // Cloudinary spesifik hataları kontrol et
+    // Basit hata yönetimi
     if (error instanceof Error) {
       const errorMessage = error.message.toLowerCase();
       
-      if (errorMessage.includes('quota') || errorMessage.includes('limit')) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: 'Cloudinary kullanım limitine ulaşıldı. Lütfen hesap planınızı kontrol edin.',
-            details: error.message
-          },
-          { status: 429 }
-        );
-      }
-      
-      if (errorMessage.includes('unauthorized') || errorMessage.includes('invalid')) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: 'Cloudinary kimlik doğrulama hatası. API anahtarlarını kontrol edin.',
-            details: error.message
-          },
-          { status: 401 }
-        );
-      }
-      
       if (errorMessage.includes('timeout')) {
         return NextResponse.json(
-          { 
-            success: false, 
-            error: 'Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.',
-            details: error.message
-          },
+          { success: false, error: 'Yükleme zaman aşımına uğradı' },
           { status: 408 }
         );
       }
-
-      if (errorMessage.includes('network') || errorMessage.includes('connection')) {
+      
+      if (errorMessage.includes('quota') || errorMessage.includes('limit')) {
         return NextResponse.json(
-          { 
-            success: false, 
-            error: 'Ağ bağlantısı hatası. Lütfen tekrar deneyin.',
-            details: error.message
-          },
-          { status: 503 }
+          { success: false, error: 'Cloudinary limit aşıldı' },
+          { status: 429 }
         );
       }
     }
@@ -155,9 +120,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { 
         success: false, 
-        error: 'Dosya yüklenemedi. Sunucu loglarını kontrol edin.',
-        details: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString()
+        error: 'Dosya yüklenemedi',
+        details: error instanceof Error ? error.message : String(error)
       },
       { status: 500 }
     );
