@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Login</title>
+</head>
+<body>
+    <h1>Test Login</h1>
+    <button onclick="setToken()">Set Token</button>
+    <button onclick="checkToken()">Check Token</button>
+    <button onclick="clearToken()">Clear Token</button>
+    <button onclick="goToLibrary()">Go to Library</button>
+    
+    <script>
+        function setToken() {
+            const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2ODZlYTVlNzI1YzBmZmViM2Q0YWIwODIiLCJpZCI6IjY4NmVhNWU3MjVjMGZmZWIzZDRhYjA4MiIsInVzZXJJZCI6IjY4NmVhNWU3MjVjMGZmZWIzZDRhYjA4MiIsImVtYWlsIjoiYWRtaW5AZ21haWwuY29tIiwidXNlcm5hbWUiOiJwZXJmZWN0dXNtaW0iLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NTIyMzgxMDQsImV4cCI6MTc1Mjg0MjkwNH0.l2inzW14Y8t7fSQgjvTBtMadr897UMjUES3QqdxMMTs';
+            localStorage.setItem('token', token);
+            alert('Token set!');
+        }
+        
+        function checkToken() {
+            const token = localStorage.getItem('token');
+            alert('Token: ' + (token ? 'exists' : 'missing'));
+        }
+        
+        function clearToken() {
+            localStorage.removeItem('token');
+            alert('Token cleared!');
+        }
+        
+        function goToLibrary() {
+            window.location.href = '/library';
+        }
+    </script>
+</body>
+</html>
