@@ -191,6 +191,9 @@ export default function CreateChapterPage() {
 
         console.log(`Sayfa ${i + 1} yükleniyor...`);
 
+        // İstekler arasına küçük bir gecikme ekleyerek sunucuyu rahatlat
+        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms bekle
+
         const response = await fetch('/api/upload', {
           method: 'POST',
           headers: {
