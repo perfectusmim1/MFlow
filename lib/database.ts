@@ -21,6 +21,7 @@ interface MongoConnection {
 declare global {
   var mongoose: MongooseConnection | undefined;
   var mongodb: MongoConnection | undefined;
+  var modelsInitialized: boolean | undefined;
 }
 
 let cached = global.mongoose;
@@ -34,8 +35,32 @@ if (!mongoCached) {
   mongoCached = global.mongodb = { client: null, db: null, promise: null };
 }
 
+// Initialize models to prevent MissingSchemaError in serverless environment
+function initializeModels() {
+  if (global.modelsInitialized) {
+    return;
+  }
+
+  try {
+    // Import all models to ensure they are registered
+    require('./models/User');
+    require('./models/Manga');
+    require('./models/Chapter');
+    require('./models/Comment');
+    require('./models/Reaction');
+    require('./models/Session');
+    
+    global.modelsInitialized = true;
+    console.log('✅ All models initialized successfully');
+  } catch (error) {
+    console.error('❌ Error initializing models:', error);
+  }
+}
+
 async function connectDB(): Promise<mongoose.Connection> {
   if (cached!.conn) {
+    // Initialize models even if connection exists
+    initializeModels();
     return cached!.conn;
   }
 
@@ -50,6 +75,8 @@ async function connectDB(): Promise<mongoose.Connection> {
 
     cached!.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
       console.log('✅ MongoDB bağlantısı başarılı');
+      // Initialize models after successful connection
+      initializeModels();
       return mongoose.connection;
     }).catch((error) => {
       console.error('❌ MongoDB bağlantı hatası:', error);
@@ -110,4 +137,4 @@ export const db = {
     const database = await getDB();
     return database.collection(name);
   }
-}; 
+};

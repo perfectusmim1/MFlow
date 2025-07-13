@@ -1,13 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/database';
-import MangaModel from '@/lib/models/Manga';
 import { authMiddleware } from '@/lib/middleware';
 import slugify from 'slugify';
+
+// Safe model import function
+function getMangaModel() {
+  try {
+    // Try to get from mongoose.models first
+    if (typeof window === 'undefined') {
+      const mongoose = require('mongoose');
+      if (mongoose.models.Manga) {
+        return mongoose.models.Manga;
+      }
+      // If not found, import the model file
+      return require('@/lib/models/Manga').default;
+    }
+  } catch (error) {
+    console.error('Error getting Manga model:', error);
+    throw error;
+  }
+}
+
+function getChapterModel() {
+  try {
+    if (typeof window === 'undefined') {
+      const mongoose = require('mongoose');
+      if (mongoose.models.Chapter) {
+        return mongoose.models.Chapter;
+      }
+      return require('@/lib/models/Chapter').default;
+    }
+  } catch (error) {
+    console.error('Error getting Chapter model:', error);
+    throw error;
+  }
+}
 
 // GET /api/manga - Manga listesi
 export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
+    
+    // Get models safely
+    const MangaModel = getMangaModel();
+    const ChapterModel = getChapterModel();
     
     // Check if user is admin
     const authResult = await authMiddleware(req);
@@ -80,6 +116,17 @@ export async function GET(req: NextRequest) {
         }
       },
       {
+        $lookup: {
+          from: 'chapters',
+          localField: 'lastChapter',
+          foreignField: '_id',
+          as: 'lastChapterData',
+          pipeline: [
+            { $project: { chapterNumber: 1, title: 1, slug: 1 } }
+          ]
+        }
+      },
+      {
         $project: {
           title: 1,
           slug: 1,
@@ -92,7 +139,7 @@ export async function GET(req: NextRequest) {
           artist: 1,
           genres: 1,
           description: 1,
-          lastChapter: 1,
+          lastChapter: { $arrayElemAt: ["$lastChapterData", 0] },
           createdAt: 1,
           updatedAt: 1,
           isPrivate: 1,
@@ -125,12 +172,6 @@ export async function GET(req: NextRequest) {
     
     const countResult = await MangaModel.aggregate(countPipeline, aggregateOptions);
     const total = countResult.length > 0 ? countResult[0].total : 0;
-
-    // Populate lastChapter manually since aggregate doesn't handle it well for this case
-    await MangaModel.populate(manga, {
-      path: 'lastChapter',
-      select: 'chapterNumber'
-    });
 
     return NextResponse.json({
       success: true,
@@ -166,6 +207,9 @@ export async function POST(req: NextRequest) {
     }
 
     await connectToDatabase();
+    
+    // Get model safely
+    const MangaModel = getMangaModel();
     
     const body = await req.json();
     const {
@@ -292,6 +336,9 @@ export async function PUT(req: NextRequest) {
     }
 
     await connectToDatabase();
+    
+    // Get model safely
+    const MangaModel = getMangaModel();
     
     const body = await req.json();
     const {
